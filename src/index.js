@@ -12,6 +12,21 @@ async function run() {
     const githubToken = core.getInput('github-token', { required: true });
     const authorizedUsersInput = core.getInput('authorized-users', { required: true });
     const channelId = process.env.SLACK_CHANNEL_ID;
+    const botToken = process.env.SLACK_BOT_TOKEN;
+    const appToken = process.env.SLACK_APP_TOKEN;
+    const signingSecret = process.env.SLACK_SIGNING_SECRET;
+
+    // Validate environment variables
+    if (!botToken || !appToken || !signingSecret || !channelId) {
+      core.setFailed('Missing required Slack environment variables (SLACK_BOT_TOKEN, SLACK_APP_TOKEN, SLACK_SIGNING_SECRET, or SLACK_CHANNEL_ID)');
+      return;
+    }
+
+    // Validate tokens for invalid characters
+    if (/[\s\n]/.test(botToken) || /[\s\n]/.test(appToken) || /[\s\n]/.test(signingSecret)) {
+      core.setFailed('SLACK_BOT_TOKEN, SLACK_APP_TOKEN, or SLACK_SIGNING_SECRET contains invalid characters (e.g., spaces or newlines)');
+      return;
+    }
 
     // Handle authorized users (single or comma-separated)
     const authorizedUsers = authorizedUsersInput
@@ -26,15 +41,16 @@ async function run() {
 
     // Initialize Slack Bolt app
     const app = new App({
-      token: process.env.SLACK_BOT_TOKEN,
-      appToken: process.env.SLACK_APP_TOKEN,
-      signingSecret: process.env.SLACK_SIGNING_SECRET,
+      token: botToken,
+      appToken: appToken,
+      signingSecret: signingSecret,
       socketMode: true,
     });
 
     // Send Slack notification
     const result = await app.client.chat.postMessage({
       channel: channelId,
+      text: `New PR in ${repository}: #${prNumber} - ${prTitle}`, // Added text field for fallback
       blocks: [
         {
           type: 'header',
