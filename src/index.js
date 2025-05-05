@@ -16,6 +16,7 @@ function debugSecret(name, value) {
 }
 
 async function run() {
+  let app;
   try {
     // Retrieve inputs using @actions/core
     const repository = core.getInput('repository', { required: true });
@@ -88,7 +89,7 @@ async function run() {
 
     // Initialize Slack Bolt app
     console.log('DEBUG: Initializing Slack Bolt app...');
-    const app = new App({
+    app = new App({
       token: botToken,
       appToken: appToken,
       signingSecret: signingSecret,
@@ -145,6 +146,9 @@ async function run() {
 
     console.log('DEBUG: Slack notification sent successfully, message ID:', result.ts);
 
+    // Flag to track if approval is complete
+    let approvalComplete = false;
+
     // Handle button click
     app.action('approve_pr', async ({ body, ack, client }) => {
       await ack();
@@ -152,6 +156,8 @@ async function run() {
       const userId = body.user.id;
       const [repo, prNumber] = body.actions[0].value.split(':');
 
+      // Debug: Log authorized users during button click
+      console.log('DEBUG: Checking authorization, expected users:', authorizedUsers, 'actual user:', userId);
       if (!authorizedUsers.includes(userId)) {
         console.log('DEBUG: User not authorized:', userId);
         await client.chat.update({
@@ -189,38 +195,4 @@ async function run() {
               type: 'section',
               text: {
                 type: 'mrkdwn',
-                text: `PR #${prNumber} approved by <@${userId}>!\n<${response.data.html_url}|View approval>`,
-              },
-            },
-          ],
-        });
-
-        console.log('DEBUG: Slack message updated, PR #${prNumber} approved by ${userId}');
-      } catch (error) {
-        console.error('DEBUG: GitHub API error:', error.response ? error.response.data : error.message);
-        await client.chat.update({
-          channel: body.channel.id,
-          ts: body.message.ts,
-          text: `Failed to approve PR #${prNumber}: ${error.message}`,
-        });
-      }
-    });
-
-    // Start Bolt app
-    console.log('DEBUG: Starting Slack Bolt app...');
-    await app.start();
-    console.log('DEBUG: Slack Bolt app started successfully');
-
-    // Keep the action running for 10 minutes to handle interactions
-    console.log('DEBUG: Waiting 10 minutes for interactions...');
-    await new Promise(resolve => setTimeout(resolve, 10 * 60 * 1000));
-    console.log('DEBUG: Stopping Slack Bolt app...');
-    await app.stop();
-    console.log('DEBUG: Slack Bolt app stopped');
-  } catch (error) {
-    console.error('DEBUG: Action failed:', error.message, 'Stack:', error.stack);
-    core.setFailed(`Action failed: ${error.message}`);
-  }
-}
-
-run();
+                text: `PR #${prNumber} approved by
