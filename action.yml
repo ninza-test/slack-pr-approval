@@ -22,3 +22,7 @@ inputs:
 runs:
   using: node20
   main: src/index.js
+
+branding:
+  icon: 'message-circle'
+  color: 'purple'
