@@ -139,6 +139,16 @@ async function run() {
               value: `${repository}:${prNumber}`,
               style: 'primary',
             },
+            {
+              type: 'button',
+              text: {
+                type: 'plain_text',
+                text: 'Reject PR',
+              },
+              action_id: 'reject_pr',
+              value: `${repository}:${prNumber}`,
+              style: 'danger',
+            },
           ],
         },
       ],
@@ -146,20 +156,20 @@ async function run() {
 
     console.log('DEBUG: Slack notification sent successfully, message ID:', result.ts);
 
-    // Flag to track if approval is complete
-    let approvalComplete = false;
+    // Flag to track if action (approve or reject) is complete
+    let actionComplete = false;
 
-    // Handle button click
+    // Handle Approve button click
     app.action('approve_pr', async ({ body, ack, client }) => {
       await ack();
-      console.log('DEBUG: Button click received, user:', body.user.id, 'action value:', body.actions[0].value);
+      console.log('DEBUG: Approve button click received, user:', body.user.id, 'action value:', body.actions[0].value);
       const userId = body.user.id;
       const [repo, prNumber] = body.actions[0].value.split(':');
 
       // Debug: Log authorized users during button click
-      console.log('DEBUG: Checking authorization, expected users:', authorizedUsers, 'actual user:', userId);
+      console.log('DEBUG: Checking authorization for approve, expected users:', authorizedUsers, 'actual user:', userId);
       if (!authorizedUsers.includes(userId)) {
-        console.log('DEBUG: User not authorized:', userId);
+        console.log('DEBUG: User not authorized for approve:', userId);
         await client.chat.update({
           channel: body.channel.id,
           ts: body.message.ts,
@@ -202,13 +212,80 @@ async function run() {
         });
 
         console.log('DEBUG: Slack message updated, PR #${prNumber} approved by ${userId}');
-        approvalComplete = true; // Mark approval as complete
+        actionComplete = true; // Mark action as complete
       } catch (error) {
-        console.error('DEBUG: GitHub API error:', error.response ? error.response.data : error.message);
+        console.error('DEBUG: GitHub API error during approve:', error.response ? error.response.data : error.message);
         await client.chat.update({
           channel: body.channel.id,
           ts: body.message.ts,
           text: `Failed to approve PR #${prNumber}: ${error.message}`,
+        });
+      }
+    });
+
+    // Handle Reject button click
+    app.action('reject_pr', async ({ body, ack, client }) => {
+      await ack();
+      console.log('DEBUG: Reject button click received, user:', body.user.id, 'action value:', body.actions[0].value);
+      const userId = body.user.id;
+      const [repo, prNumber] = body.actions[0].value.split(':');
+
+      // Debug: Log authorized users during button click
+      console.log('DEBUG: Checking authorization for reject, expected users:', authorizedUsers, 'actual user:', userId);
+      if (!authorizedUsers.includes(userId)) {
+        console.log('DEBUG: User not authorized for reject:', userId);
+        await client.chat.update({
+          channel: body.channel.id,
+          ts: body.message.ts,
+          text: `<@${userId}> is not authorized to reject PRs.`,
+        });
+        return;
+      }
+
+      console.log('DEBUG: User authorized, rejecting PR:', repo, prNumber);
+      try {
+        // Reject PR using Axios (REQUEST_CHANGES)
+        const response = await axios.post(
+          `https://api.github.com/repos/${repo}/pulls/${prNumber}/reviews`,
+          {
+            event: 'REQUEST_CHANGES',
+            body: 'Changes requested via Slack by authorized user.',
+          },
+          {
+            headers: {
+              Authorization: `token ${githubToken}`,
+              Accept: 'application/vnd.github.v3+json',
+              'User-Agent': 'GitHub-PR-Approver',
+            },
+          }
+        );
+
+        console.log('DEBUG: PR rejected, response:', response.data.id);
+
+        // Update Slack message
+        await client.chat.update({
+          channel: body.channel.id,
+          ts: body.message.ts,
+          text: `PR #${prNumber} rejected by <@${userId}>!`,
+          blocks: [
+            {
+              type: 'section',
+              text: {
+                type: 'mrkdwn',
+                text: `PR #${prNumber} rejected by <@${userId}>!\n<${response.data.html_url}|View rejection>`,
+              },
+            },
+          ],
+        });
+
+        console.log('DEBUG: Slack message updated, PR #${prNumber} rejected by ${userId}');
+        actionComplete = true; // Mark action as complete
+      } catch (error) {
+        console.error('DEBUG: GitHub API error during reject:', error.response ? error.response.data : error.message);
+        await client.chat.update({
+          channel: body.channel.id,
+          ts: body.message.ts,
+          text: `Failed to reject PR #${prNumber}: ${error.message}`,
         });
       }
     });
@@ -218,15 +295,15 @@ async function run() {
     await app.start();
     console.log('DEBUG: Slack Bolt app started successfully');
 
-    // Wait for approval or timeout (10 minutes)
-    console.log('DEBUG: Waiting for approval or 10-minute timeout...');
+    // Wait for action (approve or reject) or timeout (10 minutes)
+    console.log('DEBUG: Waiting for action or 10-minute timeout...');
     const waitTime = 10 * 60 * 1000; // 10 minutes
     const checkInterval = 1000; // Check every second
     const startTime = Date.now();
 
     while (Date.now() - startTime < waitTime) {
-      if (approvalComplete) {
-        console.log('DEBUG: Approval complete, stopping action early');
+      if (actionComplete) {
+        console.log('DEBUG: Action complete, stopping action early');
         break;
       }
       await new Promise(resolve => setTimeout(resolve, checkInterval));
