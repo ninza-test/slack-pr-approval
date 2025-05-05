@@ -1,8 +1,29 @@
+const core = require('@actions/core');
 const { App } = require('@slack/bolt');
 const axios = require('axios');
 
 async function run() {
   try {
+    // Retrieve inputs using @actions/core
+    const repository = core.getInput('repository', { required: true });
+    const prNumber = core.getInput('pr-number', { required: true });
+    const prTitle = core.getInput('pr-title', { required: true });
+    const prUrl = core.getInput('pr-url', { required: true });
+    const githubToken = core.getInput('github-token', { required: true });
+    const authorizedUsersInput = core.getInput('authorized-users', { required: true });
+    const channelId = process.env.SLACK_CHANNEL_ID;
+
+    // Handle authorized users (single or comma-separated)
+    const authorizedUsers = authorizedUsersInput
+      .split(',')
+      .map(user => user.trim())
+      .filter(user => user !== '');
+
+    if (authorizedUsers.length === 0) {
+      core.setFailed('No valid authorized users provided');
+      return;
+    }
+
     // Initialize Slack Bolt app
     const app = new App({
       token: process.env.SLACK_BOT_TOKEN,
@@ -10,14 +31,6 @@ async function run() {
       signingSecret: process.env.SLACK_SIGNING_SECRET,
       socketMode: true,
     });
-
-    const repository = process.env.REPOSITORY;
-    const prNumber = process.env.PR_NUMBER;
-    const prTitle = process.env.PR_TITLE;
-    const prUrl = process.env.PR_URL;
-    const githubToken = process.env.GITHUB_TOKEN;
-    const authorizedUsers = process.env.AUTHORIZED_USERS.split(',');
-    const channelId = process.env.SLACK_CHANNEL_ID;
 
     // Send Slack notification
     const result = await app.client.chat.postMessage({
@@ -123,8 +136,7 @@ async function run() {
     await app.stop();
     console.log('Slack Bolt app stopped');
   } catch (error) {
-    console.error(`Action failed: ${error.message}`);
-    process.exit(1);
+    core.setFailed(`Action failed: ${error.message}`);
   }
 }
 
