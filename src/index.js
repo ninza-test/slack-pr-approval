@@ -2,6 +2,19 @@ const core = require('@actions/core');
 const { App } = require('@slack/bolt');
 const axios = require('axios');
 
+// Utility function to safely log secret info without exposing full value
+function debugSecret(name, value) {
+  if (!value) {
+    return `${name}: undefined or empty`;
+  }
+  const length = value.length;
+  const preview = value.substring(0, 5); // Show first 5 chars for debugging
+  const hasSpaces = /\s/.test(value);
+  const hasNewlines = /\n/.test(value);
+  const hasTabs = /\t/.test(value);
+  return `${name}: length=${length}, preview=${preview}, hasSpaces=${hasSpaces}, hasNewlines=${hasNewlines}, hasTabs=${hasTabs}`;
+}
+
 async function run() {
   try {
     // Retrieve inputs using @actions/core
@@ -16,17 +29,50 @@ async function run() {
     const appToken = process.env.SLACK_APP_TOKEN;
     const signingSecret = process.env.SLACK_SIGNING_SECRET;
 
+    // Debug: Log secret info
+    console.log('DEBUG: Environment variables:');
+    console.log(debugSecret('SLACK_BOT_TOKEN', botToken));
+    console.log(debugSecret('SLACK_APP_TOKEN', appToken));
+    console.log(debugSecret('SLACK_SIGNING_SECRET', signingSecret));
+    console.log(debugSecret('SLACK_CHANNEL_ID', channelId));
+
     // Validate environment variables
     if (!botToken || !appToken || !signingSecret || !channelId) {
-      core.setFailed('Missing required Slack environment variables (SLACK_BOT_TOKEN, SLACK_APP_TOKEN, SLACK_SIGNING_SECRET, or SLACK_CHANNEL_ID)');
+      const missing = [];
+      if (!botToken) missing.push('SLACK_BOT_TOKEN');
+      if (!appToken) missing.push('SLACK_APP_TOKEN');
+      if (!signingSecret) missing.push('SLACK_SIGNING_SECRET');
+      if (!channelId) missing.push('SLACK_CHANNEL_ID');
+      core.setFailed(`Missing required Slack environment variables: ${missing.join(', ')}`);
       return;
     }
 
     // Validate tokens for invalid characters
-    if (/[\s\n]/.test(botToken) || /[\s\n]/.test(appToken) || /[\s\n]/.test(signingSecret)) {
-      core.setFailed('SLACK_BOT_TOKEN, SLACK_APP_TOKEN, or SLACK_SIGNING_SECRET contains invalid characters (e.g., spaces or newlines)');
+    const invalidSecrets = [];
+    if (/[\s\n\t]/.test(botToken)) invalidSecrets.push('SLACK_BOT_TOKEN');
+    if (/[\s\n\t]/.test(appToken)) invalidSecrets.push('SLACK_APP_TOKEN');
+    if (/[\s\n\t]/.test(signingSecret)) invalidSecrets.push('SLACK_SIGNING_SECRET');
+    if (invalidSecrets.length > 0) {
+      core.setFailed(`The following secrets contain invalid characters (spaces, newlines, or tabs): ${invalidSecrets.join(', ')}`);
       return;
     }
+
+    // Validate token formats
+    if (!botToken.startsWith('xoxb-')) {
+      core.setFailed('SLACK_BOT_TOKEN does not start with "xoxb-"');
+      return;
+    }
+    if (!appToken.startsWith('xapp-')) {
+      core.setFailed('SLACK_APP_TOKEN does not start with "xapp-"');
+      return;
+    }
+    if (!/^[0-9a-f]{32}$/.test(signingSecret)) {
+      core.setFailed('SLACK_SIGNING_SECRET is not a 32-character hexadecimal string');
+      return;
+    }
+
+    // Debug: Log authorized users
+    console.log('DEBUG: Authorized users input:', authorizedUsersInput);
 
     // Handle authorized users (single or comma-separated)
     const authorizedUsers = authorizedUsersInput
@@ -38,8 +84,10 @@ async function run() {
       core.setFailed('No valid authorized users provided');
       return;
     }
+    console.log('DEBUG: Parsed authorized users:', authorizedUsers);
 
     // Initialize Slack Bolt app
+    console.log('DEBUG: Initializing Slack Bolt app...');
     const app = new App({
       token: botToken,
       appToken: appToken,
@@ -47,10 +95,20 @@ async function run() {
       socketMode: true,
     });
 
+    // Debug: Test Slack API connectivity
+    console.log('DEBUG: Testing Slack API connectivity...');
+    try {
+      const apiTest = await app.client.api.test();
+      console.log('DEBUG: Slack API test response:', JSON.stringify(apiTest));
+    } catch (apiError) {
+      console.error('DEBUG: Slack API test failed:', apiError.message);
+    }
+
     // Send Slack notification
+    console.log('DEBUG: Sending Slack notification...');
     const result = await app.client.chat.postMessage({
       channel: channelId,
-      text: `New PR in ${repository}: #${prNumber} - ${prTitle}`, // Added text field for fallback
+      text: `New PR in ${repository}: #${prNumber} - ${prTitle}`, // Fallback text
       blocks: [
         {
           type: 'header',
@@ -85,15 +143,17 @@ async function run() {
       ],
     });
 
-    console.log('Slack notification sent successfully');
+    console.log('DEBUG: Slack notification sent successfully, message ID:', result.ts);
 
     // Handle button click
     app.action('approve_pr', async ({ body, ack, client }) => {
       await ack();
+      console.log('DEBUG: Button click received, user:', body.user.id, 'action value:', body.actions[0].value);
       const userId = body.user.id;
       const [repo, prNumber] = body.actions[0].value.split(':');
 
       if (!authorizedUsers.includes(userId)) {
+        console.log('DEBUG: User not authorized:', userId);
         await client.chat.update({
           channel: body.channel.id,
           ts: body.message.ts,
@@ -102,6 +162,7 @@ async function run() {
         return;
       }
 
+      console.log('DEBUG: User authorized, approving PR:', repo, prNumber);
       try {
         // Approve PR using Axios
         const response = await axios.post(
@@ -115,6 +176,8 @@ async function run() {
             },
           }
         );
+
+        console.log('DEBUG: PR approved, response:', response.data.id);
 
         // Update Slack message
         await client.chat.update({
@@ -132,9 +195,9 @@ async function run() {
           ],
         });
 
-        console.log(`PR #${prNumber} approved by ${userId}`);
+        console.log('DEBUG: Slack message updated, PR #${prNumber} approved by ${userId}');
       } catch (error) {
-        console.error('GitHub API error:', error.response ? error.response.data : error.message);
+        console.error('DEBUG: GitHub API error:', error.response ? error.response.data : error.message);
         await client.chat.update({
           channel: body.channel.id,
           ts: body.message.ts,
@@ -144,14 +207,18 @@ async function run() {
     });
 
     // Start Bolt app
+    console.log('DEBUG: Starting Slack Bolt app...');
     await app.start();
-    console.log('Slack Bolt app started');
+    console.log('DEBUG: Slack Bolt app started successfully');
 
     // Keep the action running for 10 minutes to handle interactions
+    console.log('DEBUG: Waiting 10 minutes for interactions...');
     await new Promise(resolve => setTimeout(resolve, 10 * 60 * 1000));
+    console.log('DEBUG: Stopping Slack Bolt app...');
     await app.stop();
-    console.log('Slack Bolt app stopped');
+    console.log('DEBUG: Slack Bolt app stopped');
   } catch (error) {
+    console.error('DEBUG: Action failed:', error.message, 'Stack:', error.stack);
     core.setFailed(`Action failed: ${error.message}`);
   }
 }
