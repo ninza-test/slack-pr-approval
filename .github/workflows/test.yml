@@ -1,19 +1,17 @@
-name: Test Slack PR Approval Action
+name: Slack PR Approval Workflow
 
 on:
   pull_request:
-    types: [opened, synchronize]
+    types: [opened, reopened, ready_for_review]
 
 jobs:
-  approval:
+  slack-pr-approval:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      - name: Install dependencies
-        run: npm install
-      - name: Send Approval
-        uses: ./
+      - name: Slack PR Approval
+        uses: ninza-test/slack-pr-approval@1.0
         env:
           SLACK_APP_TOKEN: ${{ secrets.SLACK_APP_TOKEN }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
@@ -26,4 +24,3 @@ jobs:
           pr-url: ${{ github.event.pull_request.html_url }}
           github-token: ${{ secrets.GH_TOKEN }}
           authorized-users: U05583CMBJA
-        timeout-minutes: 10
