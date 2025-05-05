@@ -1,0 +1,24 @@
+name: Slack PR Approval
+description: Sends a Slack notification with PR details and handles PR approval via button click
+inputs:
+  repository:
+    description: Repository full name (e.g., owner/repo)
+    required: true
+  pr-number:
+    description: Pull request number
+    required: true
+  pr-title:
+    description: Pull request title
+    required: true
+  pr-url:
+    description: Pull request URL
+    required: true
+  github-token:
+    description: GitHub PAT with repo scope for PR approvals
+    required: true
+  authorized-users:
+    description: Comma-separated Slack user IDs authorized to approve PRs
+    required: true
+runs:
+  using: node20
+  main: src/index.js
