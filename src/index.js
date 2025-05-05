@@ -195,4 +195,59 @@ async function run() {
               type: 'section',
               text: {
                 type: 'mrkdwn',
-                text: `PR #${prNumber} approved by
+                text: `PR #${prNumber} approved by <@${userId}>!\n<${response.data.html_url}|View approval>`,
+              },
+            },
+          ],
+        });
+
+        console.log('DEBUG: Slack message updated, PR #${prNumber} approved by ${userId}');
+        approvalComplete = true; // Mark approval as complete
+      } catch (error) {
+        console.error('DEBUG: GitHub API error:', error.response ? error.response.data : error.message);
+        await client.chat.update({
+          channel: body.channel.id,
+          ts: body.message.ts,
+          text: `Failed to approve PR #${prNumber}: ${error.message}`,
+        });
+      }
+    });
+
+    // Start Bolt app
+    console.log('DEBUG: Starting Slack Bolt app...');
+    await app.start();
+    console.log('DEBUG: Slack Bolt app started successfully');
+
+    // Wait for approval or timeout (10 minutes)
+    console.log('DEBUG: Waiting for approval or 10-minute timeout...');
+    const waitTime = 10 * 60 * 1000; // 10 minutes
+    const checkInterval = 1000; // Check every second
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < waitTime) {
+      if (approvalComplete) {
+        console.log('DEBUG: Approval complete, stopping action early');
+        break;
+      }
+      await new Promise(resolve => setTimeout(resolve, checkInterval));
+    }
+
+    console.log('DEBUG: Stopping Slack Bolt app...');
+    await app.stop();
+    console.log('DEBUG: Slack Bolt app stopped');
+  } catch (error) {
+    console.error('DEBUG: Action failed:', error.message, 'Stack:', error.stack);
+    core.setFailed(`Action failed: ${error.message}`);
+  } finally {
+    if (app) {
+      try {
+        await app.stop();
+        console.log('DEBUG: Slack Bolt app stopped in finally block');
+      } catch (stopError) {
+        console.error('DEBUG: Failed to stop Slack Bolt app:', stopError.message);
+      }
+    }
+  }
+}
+
+run();
