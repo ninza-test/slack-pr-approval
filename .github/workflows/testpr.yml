@@ -32,7 +32,7 @@ jobs:
             };
             const data = JSON.stringify(payload);
             const options = {
-              hostname: 'c1a3-103-214-61-236.ngrok-free.app',
+              hostname: '2355-103-214-61-236.ngrok-free.app',
               path: '/pr',
               method: 'POST',
               headers: {
