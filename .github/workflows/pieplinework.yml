@@ -49,6 +49,9 @@ jobs:
             cat "$TRIVYIGNORE"
           fi
 
+      - name: heloc hecking
+        run: |
+           ls -la
           
       - name: Extract Ignored CVEs for the Current Repo and Create .trivyignore
         id: create_trivyignore
