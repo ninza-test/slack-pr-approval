@@ -6,7 +6,13 @@ jobs:
   notify:
     runs-on: ubuntu-latest
     steps:
-      - name: Send PR Details to External Server
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Create and send escaped JSON payload
         env:
           EXTERNAL_SERVER_URL: https://c1a3-103-214-61-236.ngrok-free.app/pr
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -15,12 +21,37 @@ jobs:
           PR_URL: ${{ github.event.pull_request.html_url }}
           REPO_FULL_NAME: ${{ github.repository }}
         run: |
-          curl -X POST $EXTERNAL_SERVER_URL \
-          -H "Content-Type: application/json" \
-          -d '{
-            "pr_number": "'$PR_NUMBER'",
-            "pr_title": "'$PR_TITLE'",
-            "pr_author": "'$PR_AUTHOR'",
-            "pr_url": "'$PR_URL'",
-            "repo_full_name": "'$REPO_FULL_NAME'"
-          }'
+          node -e "
+            const https = require('https');
+            const payload = {
+              pr_number: process.env.PR_NUMBER,
+              pr_title: process.env.PR_TITLE,
+              pr_author: process.env.PR_AUTHOR,
+              pr_url: process.env.PR_URL,
+              repo_full_name: process.env.REPO_FULL_NAME
+            };
+            const data = JSON.stringify(payload);
+            const options = {
+              hostname: 'c1a3-103-214-61-236.ngrok-free.app',
+              path: '/pr',
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Content-Length': data.length
+              }
+            };
+            const req = https.request(options, (res) => {
+              let response = '';
+              res.on('data', (chunk) => response += chunk);
+              res.on('end', () => {
+                console.log('Response:', response);
+                if (res.statusCode !== 200) process.exit(1);
+              });
+            });
+            req.on('error', (e) => {
+              console.error('Error:', e);
+              process.exit(1);
+            });
+            req.write(data);
+            req.end();
+          "
