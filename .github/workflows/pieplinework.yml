@@ -20,6 +20,35 @@ jobs:
           token: ${{ secrets.GH_TOKEN }}  # Use GitHub's default token
           ref: main  # Ensure the branch exists
           path: sca_managment
+
+      - name: Generate .trivyignore from centralized ignore list
+        run: |
+          echo "🔍 Extracting ignored CVEs for this repository..."
+      
+          FULL_REPO="${{ github.repository }}"          # e.g. ninza-test/slack-pr-approval
+          REPO_NAME=$(basename "$FULL_REPO")            # Extract 'slack-pr-approval'
+      
+          JSON_FILE="sca_managment/cveignore.json"
+          TRIVYIGNORE=".trivyignore"
+      
+          echo "📦 Current repository: $REPO_NAME"
+          echo "📄 Using JSON file: $JSON_FILE"
+      
+          if [ ! -f "$JSON_FILE" ]; then
+            echo "❌ JSON file not found at $JSON_FILE"
+            exit 1
+          fi
+      
+          MATCH=$(jq -r "has(\"$REPO_NAME\")" "$JSON_FILE")
+          if [ "$MATCH" != "true" ]; then
+            echo "⚠️  No ignored CVEs found for repo: $REPO_NAME"
+            touch "$TRIVYIGNORE"
+          else
+            jq -r ".\"$REPO_NAME\".ignored_cves[].cve_id" "$JSON_FILE" > "$TRIVYIGNORE"
+            echo "✅ .trivyignore created with the following CVEs:"
+            cat "$TRIVYIGNORE"
+          fi
+
           
       - name: Extract Ignored CVEs for the Current Repo and Create .trivyignore
         id: create_trivyignore
