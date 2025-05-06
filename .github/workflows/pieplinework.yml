@@ -60,8 +60,17 @@ jobs:
         uses: aquasecurity/trivy-action@0.28.0
         with:
           scan-type: 'fs'
-          ignore-unfixed: true
-          format: 'sarif'
-          output: 'trivy-results.sarif'
+          scanners: vuln,license
+          format: json
+          exit-code: 0
+          output: 'trivy-results.json'
           severity: 'CRITICAL'
-          exit-code: '1'
+
+      - name: Fail pipeline if CRITICAL vulnerabilities are found
+        run: |
+          if jq '.Results[].Vulnerabilities[]? | select(.Severity == "CRITICAL")' trivy-results.json | grep -q .; then
+            echo "❌ CRITICAL vulnerabilities found. Failing the pipeline."
+            exit 1
+          else
+            echo "✅ No CRITICAL vulnerabilities found."
+          fi
